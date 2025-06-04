@@ -1,0 +1,83 @@
+// Pin sensor
+const int sensorA1 = A1;  // kiri paling luar
+const int sensorA2 = A2;  // kiri dalam
+const int sensorA3 = A3;  // kanan dalam
+const int sensorA7 = A7;  // kanan paling luar
+
+// Motor PWM pin (ditukar)
+const int motorKananPWM = 5;
+const int motorKiriPWM  = 6;
+
+// Ambang deteksi hitam
+const int ambangHitam = 500;
+
+// Kecepatan dasar
+const int baseSpeed = 150;
+const int maxSpeed  = 200;
+
+// PID constants (atur sesuai karakteristik robot)
+float Kp = 25;
+float Ki = 0.2;
+float Kd = 8;
+
+// Variabel PID
+float error = 0;
+float lastError = 0;
+float integral = 0;
+
+void setup() {
+  pinMode(motorKiriPWM, OUTPUT);
+  pinMode(motorKananPWM, OUTPUT);
+  Serial.begin(9600);
+}
+
+void loop() {
+  // Baca sensor
+  int s1 = analogRead(sensorA1);
+  int s2 = analogRead(sensorA2);
+  int s3 = analogRead(sensorA3);
+  int s7 = analogRead(sensorA7);
+
+  // Ubah pembacaan ke representasi biner (hitam = 1, putih = 0)
+  int b1 = (s1 > ambangHitam) ? 1 : 0;
+  int b2 = (s2 > ambangHitam) ? 1 : 0;
+  int b3 = (s3 > ambangHitam) ? 1 : 0;
+  int b7 = (s7 > ambangHitam) ? 1 : 0;
+
+  // Hitung posisi garis (weighted average)
+  // Posisi ideal = 0 (tengah)
+  int totalAktif = b1 + b2 + b3 + b7;
+
+  if (totalAktif > 0) {
+    error = ((-3 * b1) + (-1 * b2) + (1 * b3) + (3 * b7)) / (float)totalAktif;
+  } else {
+    // Garis hilang, gunakan error sebelumnya
+    error = lastError;
+  }
+
+  // PID controller
+  integral += error;
+  float derivative = error - lastError;
+  float output = (Kp * error) + (Ki * integral) + (Kd * derivative);
+
+  lastError = error;
+
+  // Hitung kecepatan motor berdasarkan PID output
+  int speedKiri  = baseSpeed + output;
+  int speedKanan = baseSpeed - output;
+
+  // Batasi kecepatan dalam rentang 0 - maxSpeed
+  speedKiri  = constrain(speedKiri, 0, maxSpeed);
+  speedKanan = constrain(speedKanan, 0, maxSpeed);
+
+  analogWrite(motorKiriPWM,  speedKiri);
+  analogWrite(motorKananPWM, speedKanan);
+
+  // Debugging
+  Serial.print("Error: "); Serial.print(error);
+  Serial.print(" | Output: "); Serial.print(output);
+  Serial.print(" | L: "); Serial.print(speedKiri);
+  Serial.print(" | R: "); Serial.println(speedKanan);
+
+  delay(12); // Jangan terlalu besar, agar responsif
+}
