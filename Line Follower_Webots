@@ -1,0 +1,88 @@
+#include <webots/robot.h>
+#include <webots/motor.h>
+#include <webots/distance_sensor.h>
+#include <stdio.h>
+
+#define TIME_STEP 32
+#define NUM_SENSORS 8 // ir0-ir7
+
+int main() {
+  wb_robot_init();
+
+  // Inisialisasi motor
+  WbDeviceTag leftMotor = wb_robot_get_device("MOTOR KIRI");
+  WbDeviceTag rightMotor = wb_robot_get_device("MOTOR KANAN");
+
+  wb_motor_set_position(leftMotor, INFINITY);
+  wb_motor_set_position(rightMotor, INFINITY);
+  wb_motor_set_velocity(leftMotor, 0.0);
+  wb_motor_set_velocity(rightMotor, 0.0);
+
+  // Inisialisasi sensor
+  const char *sensorNames[NUM_SENSORS] = {
+    "ir0", "ir1", "ir2", "ir3", "ir4", "ir5", "ir6", "ir7"
+  };
+
+  WbDeviceTag sensors[NUM_SENSORS];
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    sensors[i] = wb_robot_get_device(sensorNames[i]);
+    wb_distance_sensor_enable(sensors[i], TIME_STEP);
+  }
+
+  // Variabel PID
+  double previousError = 0.0;
+  double Kp = 0.3;
+  double Kd = 0.4;
+  double baseSpeed = 15.0;
+  int threshold = 500;
+
+  while (wb_robot_step(TIME_STEP) != -1) {
+    int sensorValues[NUM_SENSORS];
+    int detect[NUM_SENSORS];
+    int position = 0;
+    int activeCount = 0;
+    int sum = 0;
+    // Baca sensor (ir0-ir6 saja, ir7 di-skip)
+    for (int i = 0; i < NUM_SENSORS; i++) {  // ir0-ir6
+      sensorValues[i] = wb_distance_sensor_get_value(sensors[i]);
+      detect[i] = (sensorValues[i] > threshold) ? 1 : 0;
+      sum += sensorValues[i];
+      
+      if (detect[i]) {
+        position += (i - 3) * 100; // Pusat di antara ir3-ir4 (7 sensor: index 0-6)
+        activeCount++;
+      }
+    }
+    // ir7 (index 7) sengaja tidak dibaca/dipakai
+    double average = sum/7;
+  
+    // ==========================================================
+    int jalan = (average>700 && detect[3] && detect[7]) ? 0 : 1 ;
+    // PID Kontrol
+    double leftSum = sensorValues[1] + sensorValues[2];
+    double rightSum = sensorValues[4] + sensorValues[5];
+    double reverse = (detect[0] && detect[6])? -1 : 1;
+
+    double error = reverse*(leftSum - rightSum) / 12.0;
+    double derivative = (error - previousError) / TIME_STEP;
+    double correction = Kp * error + Kd * derivative;
+    previousError = error;
+
+    double leftSpeed = jalan*(baseSpeed + correction);
+    double rightSpeed = jalan*(baseSpeed - correction);
+
+    //Batas kecepatan
+    // if (leftSpeed > 15.0) leftSpeed = 15.0;
+    // if (leftSpeed < -15.0) leftSpeed = -15.0;
+    // if (rightSpeed > 15.0) rightSpeed = 15.0;
+    // if (rightSpeed < -15.0) rightSpeed = -15.0;
+
+    printf("error: %.2f \n", average);
+
+    wb_motor_set_velocity(leftMotor, leftSpeed);
+    wb_motor_set_velocity(rightMotor, rightSpeed);
+  }
+
+  wb_robot_cleanup();
+  return 0;
+}
